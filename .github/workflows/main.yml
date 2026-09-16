@@ -1,0 +1,90 @@
+name: Windows Cloud PC - AnyDesk Activo v2
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Iniciando Sistema
+    runs-on: windows-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Descargar e Instalar AnyDesk
+        shell: powershell
+        run: |
+          $ProgressPreference = 'SilentlyContinue'
+          $installer = "$env:TEMP\AnyDesk.exe"
+          Invoke-WebRequest -Uri "https://download.anydesk.com/AnyDesk.exe" -OutFile $installer -UseBasicParsing
+          
+          # Instala en la ruta clásica (x86)
+          Start-Process -FilePath $installer -ArgumentList '--install "C:\Program Files (x86)\AnyDesk" --start-with-win --silent --create-shortcuts' -Wait
+          Start-Sleep -Seconds 12
+
+      - name: Forzar arranque y configurar
+        shell: powershell
+        run: |
+          $anydesk = "C:\Program Files (x86)\AnyDesk\AnyDesk.exe"
+          
+          # Arranca el servicio
+          Start-Process $anydesk
+          Start-Sleep -Seconds 15
+          
+          # Intenta poner contraseña de acceso no atendido
+          $pass = "Rat4080!"
+          echo $pass | & $anydesk --set-password
+          Start-Sleep -Seconds 5
+
+      - name: Extraer ID (método robusto)
+        shell: powershell
+        run: |
+          $anydesk = "C:\Program Files (x86)\AnyDesk\AnyDesk.exe"
+          
+          Write-Host "========================================"
+          Write-Host "BUSCANDO ID DE ANYDESK..."
+          Write-Host "========================================"
+          
+          # Método 1: CLI con captura correcta
+          try {
+            $id = & $anydesk --get-id 2>&1
+            if ($id -match '\d{9,}') {
+              Write-Host "ID (CLI): $id"
+            }
+          } catch {}
+          
+          # Método 2: leer system.conf (más confiable)
+          $confPaths = @(
+            "$env:ProgramData\AnyDesk\system.conf",
+            "$env:APPDATA\AnyDesk\system.conf",
+            "C:\ProgramData\AnyDesk\system.conf"
+          )
+          
+          foreach ($path in $confPaths) {
+            if (Test-Path $path) {
+              Write-Host "Leyendo: $path"
+              $content = Get-Content $path -Raw -ErrorAction SilentlyContinue
+              if ($content -match 'ad\.anynet\.id=(\d+)') {
+                Write-Host "========================================"
+                Write-Host "ANYDESK ID ENCONTRADO: $($matches[1])"
+                Write-Host "Contraseña: Rat4080!"
+                Write-Host "========================================"
+              }
+            }
+          }
+          
+          # Método 3: listar procesos y forzar otra vez
+          Get-Process -Name "AnyDesk" -ErrorAction SilentlyContinue | Format-Table Id, ProcessName
+
+      - name: Keep-Alive
+        shell: powershell
+        run: |
+          $end = (Get-Date).AddHours(5.7)
+          while ((Get-Date) -lt $end) {
+            $proc = Get-Process -Name "AnyDesk" -ErrorAction SilentlyContinue
+            if (-not $proc) {
+              Write-Host "Reiniciando AnyDesk..."
+              Start-Process "C:\Program Files (x86)\AnyDesk\AnyDesk.exe"
+            }
+            Write-Host "Vivo $(Get-Date -Format 'HH:mm:ss')"
+            Start-Sleep -Seconds 40
+          }
